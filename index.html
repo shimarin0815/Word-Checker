@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>配信タイトル「パワーワード/禁止ワード」チェッカー</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+            line-height: 1.6;
+            background-color: #f4f7f6;
+            color: #333;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 12px;
+            font-size: 1.1em;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            box-sizing: border-box; /* paddingを含めた幅計算 */
+            margin-bottom: 15px;
+        }
+        #results {
+            background-color: #ffffff;
+            padding: 20px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+            min-height: 150px;
+        }
+        #score {
+            font-size: 1.5em;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 20px;
+            color: #3498db;
+        }
+        #highlightedTitle {
+            font-size: 1.2em;
+            font-weight: bold;
+            line-height: 1.8;
+            padding: 15px;
+            background: #fafafa;
+            border: 1px dashed #ccc;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .highlight {
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .power-word {
+            background-color: #e0f7fa; /* 水色系 */
+            color: #00796b;
+            border-bottom: 2px solid #00796b;
+        }
+        .risky-word {
+            background-color: #ffeeee; /* 赤色系 */
+            color: #d32f2f;
+            border-bottom: 2px solid #d32f2f;
+        }
+        .word-lists {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+        .word-lists div {
+            width: 48%;
+        }
+        .word-lists h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 5px;
+        }
+        #powerWordList, #riskyWordList {
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>配信タイトル「パワーワード/禁止ワード」チェッカー</h1>
+    <p>考案したタイトルを入力すると、定義済みの単語をハイライトし、簡易スコアを計算します。</p>
+
+    <textarea id="titleInput" placeholder="ここにタイトルを入力してください (例: 【悲報】最強の裏技が規約違反でBANされた件)"></textarea>
+
+    <div id="results">
+        <h2>チェック結果</h2>
+        <div id="score">簡易スコア: 0</div>
+        <div id="highlightedTitle">（ここにハイライトされたタイトルが表示されます）</div>
+        
+        <div class="word-lists">
+            <div>
+                <h3>検出パワーワード</h3>
+                <div id="powerWordList">なし</div>
+            </div>
+            <div>
+                <h3>検出リスクワード</h3>
+                <div id="riskyWordList">なし</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ----------------------------------------
+        // ▼▼▼ 単語リストの定義 (カスタマイズ可能) ▼▼▼
+        // ----------------------------------------
+
+        // スコアを加算する「パワーワード」のリスト
+        // ※「【悲報】」のように記号を含めると「【悲報】」に完全一致した場合のみ検出されます。
+        // ※「悲報」だけにすれば、「【悲報】」でも「悲報です」でも検出されます。
+        const POWER_WORDS = [
+            '【悲報】', '【朗報】', '【速報】', '神回', '決定版', '完全攻略', '知らないと損',
+            'ガチ', '最強', '最速', 'ヤバい', '驚愕', '衝撃', '裏技', '必見', '絶対',
+            '完全版', 'まとめ', '徹底解説', '初心者向け', 'これだけ'
+        ];
+        
+        // スコアを減算する「リスクワード」のリスト
+        // ※規約違反を助長するものではなく、あくまで「注意を促す」ための一般的な単語です。
+        const RISKY_WORDS = [
+            '死', '殺', '自殺', '詐欺', 'ハック', '違法', '暴露', '炎上', 'BAN', 
+            '通報', '危険', '停止', '警告', '流出', '卑猥', 'グロ'
+        ];
+
+        // ----------------------------------------
+        // ▼▼▼ スコアリングの定義 (カスタマイズ可能) ▼▼▼
+        // ----------------------------------------
+        const SCORE_PER_POWER_WORD = 10; // パワーワード1語あたりの加点
+        const SCORE_PER_RISKY_WORD = -20; // リスクワード1語あたりの減点
+
+        // ----------------------------------------
+        // ▼▼▼ ツールのメインロジック (変更不要) ▼▼▼
+        // ----------------------------------------
+
+        // 必要なDOM要素を取得
+        const titleInput = document.getElementById('titleInput');
+        const scoreDisplay = document.getElementById('score');
+        const highlightedTitleDisplay = document.getElementById('highlightedTitle');
+        const powerWordListDisplay = document.getElementById('powerWordList');
+        const riskyWordListDisplay = document.getElementById('riskyWordList');
+
+        // テキスト入力のたびにチェック機能を実行
+        titleInput.addEventListener('input', checkTitle);
+
+        // ページ読み込み時にも一度実行（初期表示のため）
+        checkTitle();
+
+        // メインのチェック機能
+        function checkTitle() {
+            const inputText = titleInput.value;
+            let score = 0;
+            let highlightedHTML = escapeHTML(inputText); // 先にHTMLエスケープ
+
+            const foundPowerWords = [];
+            const foundRiskyWords = [];
+
+            // 1. パワーワードのチェックとハイライト
+            POWER_WORDS.forEach(word => {
+                const regex = new RegExp(escapeRegExp(word), 'gi');
+                const matches = (inputText.match(regex) || []);
+                
+                if (matches.length > 0) {
+                    score += SCORE_PER_POWER_WORD * matches.length;
+                    foundPowerWords.push(word);
+                    // ハイライト処理
+                    highlightedHTML = highlightedHTML.replace(regex, `<span class="highlight power-word">$&</span>`);
+                }
+            });
+
+            // 2. リスクワードのチェックとハイライト
+            RISKY_WORDS.forEach(word => {
+                const regex = new RegExp(escapeRegExp(word), 'gi');
+                const matches = (inputText.match(regex) || []);
+                
+                if (matches.length > 0) {
+                    score += SCORE_PER_RISKY_WORD * matches.length;
+                    foundRiskyWords.push(word);
+                    // ハイライト処理 (パワーワードの上からでも重複してハイライト)
+                    highlightedHTML = highlightedHTML.replace(regex, `<span class="highlight risky-word">$&</span>`);
+                }
+            });
+
+            // 3. 結果の表示
+            scoreDisplay.innerText = `簡易スコア: ${score}`;
+            
+            // スコアに応じてスコア表示の色を変更
+            if (score > 10) {
+                scoreDisplay.style.color = '#27ae60'; // プラス (緑)
+            } else if (score < 0) {
+                scoreDisplay.style.color = '#c0392b'; // マイナス (赤)
+            } else {
+                scoreDisplay.style.color = '#3498db'; // デフォルト (青)
+            }
+
+            highlightedTitleDisplay.innerHTML = inputText.length > 0 ? highlightedHTML : '（ここにハイライトされたタイトルが表示されます）';
+            
+            powerWordListDisplay.innerText = foundPowerWords.length > 0 ? foundPowerWords.join(', ') : 'なし';
+            riskyWordListDisplay.innerText = foundRiskyWords.length > 0 ? foundRiskyWords.join(', ') : 'なし';
+        }
+
+        // 正規表現用の特殊文字をエスケープするヘルパー関数
+        function escapeRegExp(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // HTML特殊文字をエスケープするヘルパー関数 (XSS対策)
+        function escapeHTML(str) {
+            return str.replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      .replace(/"/g, '&quot;')
+                      .replace(/'/g, '&#039;');
+        }
+    </script>
+
+</body>
+</html>
